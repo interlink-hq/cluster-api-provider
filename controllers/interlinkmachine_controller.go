@@ -212,7 +212,7 @@ func (r *InterlinkMachineReconciler) reconcileNormal(
 	}
 
 	if interLinkAddr == "" {
-		return ctrl.Result{}, fmt.Errorf("interLinkAddress must be set when pluginSpec is not configured")
+		return ctrl.Result{}, fmt.Errorf("either pluginSpec must be configured or interLinkAddress must be explicitly set")
 	}
 
 	// Create or update the VirtualNode resource.
@@ -408,7 +408,10 @@ func (r *InterlinkMachineReconciler) reconcilePluginPodAndService(
 		},
 	}
 	_, err = controllerutil.CreateOrUpdate(ctx, r.Client, pod, func() error {
-		// Pod spec is largely immutable after creation; only set it on first create.
+		// Kubernetes PodSpec is largely immutable after the Pod is created, so
+		// we only populate the spec fields on the initial create (identified by
+		// a zero CreationTimestamp). Subsequent reconcile passes keep the
+		// existing spec and only ensure the owner reference is present.
 		if pod.CreationTimestamp.IsZero() {
 			pod.Labels = podLabels
 			pod.Spec = buildPluginPodSpec(m.Spec.PluginSpec, port)

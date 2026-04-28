@@ -35,6 +35,7 @@ spec:
     name: pilot-cluster
     namespace: default
   controlPlaneEndpoint:
+    # Replace with the address of your management Kubernetes API server.
     host: "10.0.0.1"
     port: 6443
 ---
@@ -45,6 +46,7 @@ metadata:
   namespace: default
 spec:
   controlPlaneEndpoint:
+    # Replace with the address of your management Kubernetes API server.
     host: "10.0.0.1"
     port: 6443
 ---
