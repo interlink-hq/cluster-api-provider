@@ -1,5 +1,10 @@
 # cluster-api-provider
 
+> [!WARNING]
+> **Work In Progress — not functioning or tested in production yet.**
+> This repository is an early draft. APIs, configuration, and behaviour are
+> subject to breaking changes without notice.  Do **not** use in production.
+
 A [Cluster API](https://cluster-api.sigs.k8s.io) infrastructure provider for
 [interlink](https://github.com/interTwin-eu/interLink) virtual nodes.
 
