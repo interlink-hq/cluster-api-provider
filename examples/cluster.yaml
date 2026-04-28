@@ -1,0 +1,59 @@
+---
+# A simple Cluster using the interlink infrastructure provider.
+# This Cluster has no real control plane – it models a scenario where
+# interlink virtual nodes join an existing management Kubernetes cluster
+# and are governed by Cluster API for autoscaling purposes.
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: Cluster
+metadata:
+  name: my-interlink-cluster
+  namespace: default
+spec:
+  clusterNetwork:
+    pods:
+      cidrBlocks:
+      - "192.168.0.0/16"
+  infrastructureRef:
+    apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+    kind: InterlinkCluster
+    name: my-interlink-cluster
+    namespace: default
+  controlPlaneEndpoint:
+    host: "10.0.0.1"   # address of the management Kubernetes API server
+    port: 6443
+---
+# The infrastructure counterpart of the Cluster.
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: InterlinkCluster
+metadata:
+  name: my-interlink-cluster
+  namespace: default
+spec:
+  controlPlaneEndpoint:
+    host: "10.0.0.1"
+    port: 6443
+---
+# A MachineDeployment that manages a pool of interlink virtual nodes.
+# Scaling this deployment (e.g. via the Cluster Autoscaler) adds/removes
+# InterlinkMachine objects, which in turn create/delete VirtualNode resources.
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: MachineDeployment
+metadata:
+  name: interlink-workers
+  namespace: default
+spec:
+  clusterName: my-interlink-cluster
+  replicas: 2
+  selector:
+    matchLabels:
+      cluster.x-k8s.io/cluster-name: my-interlink-cluster
+  template:
+    spec:
+      clusterName: my-interlink-cluster
+      bootstrap:
+        dataSecretName: null  # virtual nodes do not need a bootstrap secret
+      infrastructureRef:
+        apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+        kind: InterlinkMachineTemplate
+        name: interlink-machine-template
+        namespace: default

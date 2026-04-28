@@ -1,0 +1,33 @@
+---
+# InterlinkClusterTemplate: used by ClusterClass to stamp out the cluster
+# infrastructure object.
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: InterlinkClusterTemplate
+metadata:
+  name: interlink-cluster-template
+  namespace: default
+spec:
+  template:
+    spec: {}   # controlPlaneEndpoint is inherited from the owning Cluster
+---
+# InterlinkMachineTemplate: used by MachineDeployment / ClusterClass to create
+# individual virtual nodes.
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: InterlinkMachineTemplate
+metadata:
+  name: interlink-machine-template
+  namespace: default
+spec:
+  template:
+    spec:
+      interLinkAddress: "http://interlink-api.interlink-system.svc.cluster.local:3000"
+      resources:
+        cpu: "10"
+        memory: "64Gi"
+        pods: "110"
+      labels:
+        node.kubernetes.io/type: virtual
+        interlink.eu/provider: hpc-cluster
+      taints:
+      - key: virtual-node.interlink.eu
+        effect: NoSchedule
