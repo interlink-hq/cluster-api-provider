@@ -17,10 +17,10 @@ type InterlinkClusterTemplateResource struct {
 }
 
 // +kubebuilder:object:root=true
-// +kubebuilder:resource:path=interlinkclstertemplates,scope=Namespaced,categories=cluster-api
+// +kubebuilder:resource:path=interlinkclustertemplates,scope=Namespaced,categories=cluster-api
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
-// InterlinkClusterTemplate is the Schema for the interlinkclstertemplates API.
+// InterlinkClusterTemplate is the Schema for the interlinkclustertemplates API.
 type InterlinkClusterTemplate struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
