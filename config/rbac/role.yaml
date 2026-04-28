@@ -1,0 +1,48 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: interlink-capi-provider-manager-role
+rules:
+# Infrastructure provider CRDs
+- apiGroups: ["infrastructure.cluster.x-k8s.io"]
+  resources: ["interlinkclusters", "interlinkmachinetemplates", "interlinkmachines"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: ["infrastructure.cluster.x-k8s.io"]
+  resources: ["interlinkclusters/status", "interlinkmachines/status"]
+  verbs: ["get", "update", "patch"]
+- apiGroups: ["infrastructure.cluster.x-k8s.io"]
+  resources: ["interlinkclusters/finalizers", "interlinkmachines/finalizers"]
+  verbs: ["update"]
+# CAPI core
+- apiGroups: ["cluster.x-k8s.io"]
+  resources: ["clusters", "clusters/status", "machines", "machines/status"]
+  verbs: ["get", "list", "watch"]
+# interlink VirtualNode
+- apiGroups: ["virtualkubelet.io"]
+  resources: ["virtualnodes"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+# Kubernetes Nodes (to track readiness)
+- apiGroups: [""]
+  resources: ["nodes"]
+  verbs: ["get", "list", "watch"]
+# Leader election
+- apiGroups: ["coordination.k8s.io"]
+  resources: ["leases"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: interlink-capi-provider-manager-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: interlink-capi-provider-manager-role
+subjects:
+- kind: ServiceAccount
+  name: interlink-capi-provider-controller-manager
+  namespace: system

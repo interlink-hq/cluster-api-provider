@@ -1,0 +1,194 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.14.0
+  name: interlinkmachines.infrastructure.cluster.x-k8s.io
+spec:
+  group: infrastructure.cluster.x-k8s.io
+  names:
+    categories:
+    - cluster-api
+    kind: InterlinkMachine
+    listKind: InterlinkMachineList
+    plural: interlinkmachines
+    singular: interlinkmachine
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .metadata.labels['cluster\.x-k8s\.io/cluster-name']
+      name: Cluster
+      type: string
+    - jsonPath: .status.ready
+      name: Ready
+      type: boolean
+    - jsonPath: .spec.providerID
+      name: ProviderID
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: InterlinkMachine is the Schema for the interlinkmachines API.
+          Each InterlinkMachine corresponds to one interlink virtual node, allowing
+          Cluster API (and its autoscaler integration) to manage the pool of virtual
+          nodes.
+        properties:
+          apiVersion:
+            type: string
+          kind:
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: InterlinkMachineSpec defines the desired state of InterlinkMachine.
+            properties:
+              interLinkAddress:
+                description: InterLinkAddress is the HTTP(S) address of the interLink
+                  API server.
+                type: string
+              labels:
+                additionalProperties:
+                  type: string
+                description: Labels is a set of extra labels applied to the virtual
+                  Kubernetes node.
+                type: object
+              nodeName:
+                description: NodeName is the name of the Kubernetes virtual node.
+                type: string
+              providerID:
+                description: ProviderID is the identifier for the InterlinkMachine
+                  in the provider namespace.
+                type: string
+              resources:
+                description: Resources describes the total capacity advertised on
+                  the virtual node.
+                properties:
+                  cpu:
+                    anyOf:
+                    - type: integer
+                    - type: string
+                    description: CPU is the total CPU capacity.
+                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                    x-kubernetes-int-or-string: true
+                  ephemeralStorage:
+                    anyOf:
+                    - type: integer
+                    - type: string
+                    description: EphemeralStorage is the total ephemeral storage capacity.
+                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                    x-kubernetes-int-or-string: true
+                  memory:
+                    anyOf:
+                    - type: integer
+                    - type: string
+                    description: Memory is the total memory capacity.
+                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                    x-kubernetes-int-or-string: true
+                  pods:
+                    anyOf:
+                    - type: integer
+                    - type: string
+                    description: Pods is the maximum number of pods.
+                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                    x-kubernetes-int-or-string: true
+                type: object
+              taints:
+                description: Taints is a list of taints applied to the virtual Kubernetes
+                  node.
+                items:
+                  description: The node this Taint is attached to has the "effect"
+                    on any pod that does not tolerate the Taint.
+                  properties:
+                    effect:
+                      description: Required. The effect of the taint on pods that
+                        do not tolerate the taint.
+                      type: string
+                    key:
+                      description: Required. The taint key to be applied to a node.
+                      type: string
+                    timeAdded:
+                      description: TimeAdded represents the time at which the taint
+                        was added.
+                      format: date-time
+                      type: string
+                    value:
+                      description: The taint value corresponding to the taint key.
+                      type: string
+                  required:
+                  - effect
+                  - key
+                  type: object
+                type: array
+              virtualKubeletImage:
+                description: VirtualKubeletImage is the container image to use for
+                  the virtual-kubelet pod.
+                type: string
+            required:
+            - interLinkAddress
+            type: object
+          status:
+            description: InterlinkMachineStatus defines the observed state of InterlinkMachine.
+            properties:
+              addresses:
+                description: Addresses contains the associated addresses for the virtual
+                  node.
+                items:
+                  description: MachineAddress contains information for the node's
+                    address.
+                  properties:
+                    address:
+                      description: The machine address.
+                      type: string
+                    type:
+                      description: Machine address type, one of Hostname, ExternalIP,
+                        InternalIP, ExternalDNS or InternalDNS.
+                      type: string
+                  required:
+                  - address
+                  - type
+                  type: object
+                type: array
+              conditions:
+                description: Conditions defines current service state of the InterlinkMachine.
+                items:
+                  properties:
+                    lastTransitionTime:
+                      format: date-time
+                      type: string
+                    message:
+                      type: string
+                    reason:
+                      type: string
+                    severity:
+                      type: string
+                    status:
+                      type: string
+                    type:
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - status
+                  - type
+                  type: object
+                type: array
+              failureMessage:
+                description: FailureMessage is a verbose description of a terminal
+                  problem.
+                type: string
+              failureReason:
+                description: FailureReason is a short machine-readable value for
+                  a terminal problem.
+                type: string
+              ready:
+                description: Ready is true when the provider resource is ready.
+                type: boolean
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
