@@ -21,8 +21,18 @@ type InterlinkMachineSpec struct {
 
 	// InterLinkAddress is the HTTP(S) address of the interLink API server that manages
 	// the remote resource(s) behind this virtual node.
-	// +kubebuilder:validation:Required
-	InterLinkAddress string `json:"interLinkAddress"`
+	// Required when PluginSpec is not set. When PluginSpec is provided and this field
+	// is empty the address is derived automatically from the plugin Service.
+	// +optional
+	InterLinkAddress string `json:"interLinkAddress,omitempty"`
+
+	// PluginSpec, when set, instructs the controller to spawn a Pod (and a matching
+	// ClusterIP Service) that runs the interLink plugin binary on an existing virtual
+	// node. The Service address is then used as the interLinkAddress for the VirtualNode,
+	// enabling on-demand provisioning of interLink instances ("pilot" mode).
+	// Either PluginSpec or InterLinkAddress must be provided.
+	// +optional
+	PluginSpec *PluginPodSpec `json:"pluginSpec,omitempty"`
 
 	// VirtualKubeletImage is the container image to use for the virtual-kubelet pod
 	// that implements this virtual node. Defaults to the project's official image.
@@ -40,6 +50,41 @@ type InterlinkMachineSpec struct {
 	// Taints is a list of taints to apply to the virtual Kubernetes node.
 	// +optional
 	Taints []corev1.Taint `json:"taints,omitempty"`
+}
+
+// PluginPodSpec describes a Pod that runs the interLink plugin binary on an existing
+// virtual node. The controller creates the Pod and a ClusterIP Service, then uses the
+// Service's address as the interLinkAddress for the VirtualNode.
+type PluginPodSpec struct {
+	// Image is the container image for the interLink plugin binary
+	// (e.g. "ghcr.io/interlink-hq/interlink/plugin-apptainer:latest").
+	// +kubebuilder:validation:Required
+	Image string `json:"image"`
+
+	// Port is the TCP port on which the plugin listens inside the container.
+	// Defaults to 4000.
+	// +optional
+	// +kubebuilder:default=4000
+	Port int32 `json:"port,omitempty"`
+
+	// NodeSelector constrains the plugin Pod to nodes whose labels match the
+	// given key/value pairs. Use this to target an existing interLink virtual
+	// node that has access to the remote resource provider (e.g. an HPC cluster).
+	// +optional
+	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
+
+	// Tolerations are applied to the plugin Pod so it can be scheduled on nodes
+	// that carry matching taints (e.g. virtual-node.interlink.eu/NoSchedule).
+	// +optional
+	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
+
+	// Env is a list of environment variables to set in the plugin container.
+	// +optional
+	Env []corev1.EnvVar `json:"env,omitempty"`
+
+	// Resources specifies the compute resources required by the plugin container.
+	// +optional
+	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
 }
 
 // VirtualNodeResources describes the capacity of a virtual node.
