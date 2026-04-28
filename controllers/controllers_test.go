@@ -358,4 +358,227 @@ func TestInterlinkMachineReconciler_DeletesVirtualNode(t *testing.T) {
 	g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
 }
 
+func TestInterlinkMachineReconciler_PluginPodMode_WaitsForPod(t *testing.T) {
+	g := NewWithT(t)
+	scheme := buildScheme(t)
+
+	cluster := &clusterv1.Cluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-cluster", Namespace: "default"},
+	}
+	machine := &clusterv1.Machine{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "pilot-machine",
+			Namespace: "default",
+			Labels:    map[string]string{clusterv1.ClusterNameLabel: "test-cluster"},
+		},
+		Spec: clusterv1.MachineSpec{ClusterName: "test-cluster"},
+	}
+	interlinkMachine := &infrav1.InterlinkMachine{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "pilot-machine",
+			Namespace: "default",
+			OwnerReferences: []metav1.OwnerReference{
+				{APIVersion: clusterv1.GroupVersion.String(), Kind: "Machine", Name: machine.Name, UID: machine.UID, Controller: boolPtr(true)},
+			},
+		},
+		Spec: infrav1.InterlinkMachineSpec{
+			NodeName: "virtual-node-pilot",
+			PluginSpec: &infrav1.PluginPodSpec{
+				Image: "ghcr.io/interlink-hq/interlink/plugin-apptainer:latest",
+				Port:  4000,
+				NodeSelector: map[string]string{
+					"interlink.eu/provider": "hpc-cluster",
+				},
+			},
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(cluster, machine, interlinkMachine).
+		WithStatusSubresource(interlinkMachine).
+		Build()
+
+	reconciler := &controllers.InterlinkMachineReconciler{
+		Client: fakeClient,
+		Scheme: scheme,
+		Log:    ctrl.Log.WithName("test"),
+	}
+
+	result, err := reconciler.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Namespace: "default", Name: "pilot-machine"},
+	})
+	g.Expect(err).ToNot(HaveOccurred())
+	// Plugin pod is not Running yet; should requeue.
+	g.Expect(result.RequeueAfter).ToNot(BeZero())
+
+	// The plugin Pod should have been created.
+	pod := &corev1.Pod{}
+	g.Expect(fakeClient.Get(context.Background(), types.NamespacedName{Namespace: "default", Name: "pilot-machine-plugin"}, pod)).To(Succeed())
+	g.Expect(pod.Spec.Containers).To(HaveLen(1))
+	g.Expect(pod.Spec.Containers[0].Image).To(Equal("ghcr.io/interlink-hq/interlink/plugin-apptainer:latest"))
+	g.Expect(pod.Spec.Containers[0].Ports[0].ContainerPort).To(Equal(int32(4000)))
+	g.Expect(pod.Spec.NodeSelector).To(HaveKeyWithValue("interlink.eu/provider", "hpc-cluster"))
+
+	// The plugin Service should have been created.
+	svc := &corev1.Service{}
+	g.Expect(fakeClient.Get(context.Background(), types.NamespacedName{Namespace: "default", Name: "pilot-machine-plugin"}, svc)).To(Succeed())
+	g.Expect(svc.Spec.Ports).To(HaveLen(1))
+	g.Expect(svc.Spec.Ports[0].Port).To(Equal(int32(4000)))
+	g.Expect(svc.Spec.Selector).To(HaveKeyWithValue("interlinkmachine.infrastructure.cluster.x-k8s.io/machine", "pilot-machine"))
+
+	// The InterlinkMachine should NOT be ready yet.
+	got := &infrav1.InterlinkMachine{}
+	g.Expect(fakeClient.Get(context.Background(), types.NamespacedName{Namespace: "default", Name: "pilot-machine"}, got)).To(Succeed())
+	g.Expect(got.Status.Ready).To(BeFalse())
+}
+
+func TestInterlinkMachineReconciler_PluginPodMode_MarksReadyWhenPodRunning(t *testing.T) {
+	g := NewWithT(t)
+	scheme := buildScheme(t)
+
+	cluster := &clusterv1.Cluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-cluster", Namespace: "default"},
+	}
+	machine := &clusterv1.Machine{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "pilot-machine",
+			Namespace: "default",
+			Labels:    map[string]string{clusterv1.ClusterNameLabel: "test-cluster"},
+		},
+		Spec: clusterv1.MachineSpec{ClusterName: "test-cluster"},
+	}
+	interlinkMachine := &infrav1.InterlinkMachine{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "pilot-machine",
+			Namespace: "default",
+			OwnerReferences: []metav1.OwnerReference{
+				{APIVersion: clusterv1.GroupVersion.String(), Kind: "Machine", Name: machine.Name, UID: machine.UID, Controller: boolPtr(true)},
+			},
+		},
+		Spec: infrav1.InterlinkMachineSpec{
+			NodeName: "virtual-node-pilot",
+			PluginSpec: &infrav1.PluginPodSpec{
+				Image: "ghcr.io/interlink-hq/interlink/plugin-apptainer:latest",
+				Port:  4000,
+			},
+		},
+	}
+
+	// Pre-create the plugin Pod in Running phase.
+	pluginPod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "pilot-machine-plugin",
+			Namespace: "default",
+			Labels: map[string]string{
+				"interlinkmachine.infrastructure.cluster.x-k8s.io/machine": "pilot-machine",
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{Name: "plugin", Image: "ghcr.io/interlink-hq/interlink/plugin-apptainer:latest"}},
+		},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning},
+	}
+
+	// Pre-create the virtual Kubernetes node in Ready state.
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "virtual-node-pilot"},
+		Status: corev1.NodeStatus{
+			Conditions: []corev1.NodeCondition{
+				{Type: corev1.NodeReady, Status: corev1.ConditionTrue},
+			},
+			Addresses: []corev1.NodeAddress{
+				{Type: corev1.NodeInternalIP, Address: "10.0.0.5"},
+			},
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(cluster, machine, interlinkMachine, pluginPod, node).
+		WithStatusSubresource(interlinkMachine, pluginPod).
+		Build()
+
+	reconciler := &controllers.InterlinkMachineReconciler{
+		Client: fakeClient,
+		Scheme: scheme,
+		Log:    ctrl.Log.WithName("test"),
+	}
+
+	_, err := reconciler.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Namespace: "default", Name: "pilot-machine"},
+	})
+	g.Expect(err).ToNot(HaveOccurred())
+
+	// VirtualNode should have been created with the derived interLinkAddress.
+	vn := &virtualnode.VirtualNode{}
+	g.Expect(fakeClient.Get(context.Background(), types.NamespacedName{Namespace: "default", Name: "virtual-node-pilot"}, vn)).To(Succeed())
+	g.Expect(vn.Spec.InterLinkAddress).To(Equal("http://pilot-machine-plugin.default.svc.cluster.local:4000"))
+
+	// InterlinkMachine should be ready.
+	got := &infrav1.InterlinkMachine{}
+	g.Expect(fakeClient.Get(context.Background(), types.NamespacedName{Namespace: "default", Name: "pilot-machine"}, got)).To(Succeed())
+	g.Expect(got.Status.Ready).To(BeTrue())
+	g.Expect(got.Spec.ProviderID).ToNot(BeNil())
+	g.Expect(*got.Spec.ProviderID).To(Equal("interlink://virtual-node-pilot"))
+}
+
+func TestInterlinkMachineReconciler_PluginPodMode_DefaultPort(t *testing.T) {
+	g := NewWithT(t)
+	scheme := buildScheme(t)
+
+	cluster := &clusterv1.Cluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-cluster", Namespace: "default"},
+	}
+	machine := &clusterv1.Machine{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "pilot-default-port",
+			Namespace: "default",
+			Labels:    map[string]string{clusterv1.ClusterNameLabel: "test-cluster"},
+		},
+		Spec: clusterv1.MachineSpec{ClusterName: "test-cluster"},
+	}
+	// PluginSpec with no Port set → should default to 4000.
+	interlinkMachine := &infrav1.InterlinkMachine{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "pilot-default-port",
+			Namespace: "default",
+			OwnerReferences: []metav1.OwnerReference{
+				{APIVersion: clusterv1.GroupVersion.String(), Kind: "Machine", Name: machine.Name, UID: machine.UID, Controller: boolPtr(true)},
+			},
+		},
+		Spec: infrav1.InterlinkMachineSpec{
+			PluginSpec: &infrav1.PluginPodSpec{
+				Image: "ghcr.io/interlink-hq/interlink/plugin-apptainer:latest",
+				// Port intentionally left as zero to exercise the default.
+			},
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(cluster, machine, interlinkMachine).
+		WithStatusSubresource(interlinkMachine).
+		Build()
+
+	reconciler := &controllers.InterlinkMachineReconciler{
+		Client: fakeClient,
+		Scheme: scheme,
+		Log:    ctrl.Log.WithName("test"),
+	}
+
+	_, err := reconciler.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Namespace: "default", Name: "pilot-default-port"},
+	})
+	g.Expect(err).ToNot(HaveOccurred())
+
+	svc := &corev1.Service{}
+	g.Expect(fakeClient.Get(context.Background(), types.NamespacedName{Namespace: "default", Name: "pilot-default-port-plugin"}, svc)).To(Succeed())
+	g.Expect(svc.Spec.Ports[0].Port).To(Equal(int32(4000)))
+
+	pod := &corev1.Pod{}
+	g.Expect(fakeClient.Get(context.Background(), types.NamespacedName{Namespace: "default", Name: "pilot-default-port-plugin"}, pod)).To(Succeed())
+	g.Expect(pod.Spec.Containers[0].Ports[0].ContainerPort).To(Equal(int32(4000)))
+}
+
 func boolPtr(b bool) *bool { return &b }

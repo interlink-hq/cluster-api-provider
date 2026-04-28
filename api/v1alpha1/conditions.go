@@ -14,4 +14,16 @@ const (
 
 	// VirtualNodeDeletingReason is used when the VirtualNode is being deleted.
 	VirtualNodeDeletingReason = "VirtualNodeDeleting"
+
+	// PluginPodReadyCondition reports whether the pilot plugin Pod (created when
+	// PluginSpec is set) is Running and ready to serve interLink requests.
+	PluginPodReadyCondition clusterv1.ConditionType = "PluginPodReady"
+
+	// PluginPodProvisioningReason is used when the plugin Pod or its Service is
+	// being created or is not yet Running.
+	PluginPodProvisioningReason = "PluginPodProvisioning"
+
+	// PluginPodNotReadyReason is used when the plugin Pod exists but has not yet
+	// reached the Running phase.
+	PluginPodNotReadyReason = "PluginPodNotReady"
 )

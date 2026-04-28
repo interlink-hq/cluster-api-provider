@@ -1,0 +1,130 @@
+---
+# Pilot-mode example: on-demand interLink plugin instantiation.
+#
+# In this mode the controller creates a Pod (and a ClusterIP Service) that runs
+# the interLink plugin binary on an *existing* virtual node that has access to
+# the remote resource provider (e.g. an HPC cluster running Apptainer).
+# The Service address is automatically used as the interLinkAddress for the
+# VirtualNode, so no external interLink deployment is required beforehand.
+#
+# Flow:
+#   cluster-api  →  InterlinkMachine created
+#                →  controller creates Plugin Pod on existing virtual node
+#                →  controller creates ClusterIP Service for the Pod
+#                →  Pod becomes Running → interLinkAddress derived from Service
+#                →  VirtualNode created pointing at the Service
+#                →  node is Ready with the requested capacity
+#
+# The same InterlinkMachineTemplate can be referenced by a MachineDeployment
+# and scaled by the Cluster Autoscaler.
+
+# -- Cluster -----------------------------------------------------------------
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: Cluster
+metadata:
+  name: pilot-cluster
+  namespace: default
+spec:
+  clusterNetwork:
+    pods:
+      cidrBlocks:
+        - "192.168.0.0/16"
+  infrastructureRef:
+    apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+    kind: InterlinkCluster
+    name: pilot-cluster
+    namespace: default
+  controlPlaneEndpoint:
+    # Replace with the address of your management Kubernetes API server.
+    host: "10.0.0.1"
+    port: 6443
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: InterlinkCluster
+metadata:
+  name: pilot-cluster
+  namespace: default
+spec:
+  controlPlaneEndpoint:
+    # Replace with the address of your management Kubernetes API server.
+    host: "10.0.0.1"
+    port: 6443
+---
+# -- MachineDeployment (autoscalable) ----------------------------------------
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: MachineDeployment
+metadata:
+  name: pilot-workers
+  namespace: default
+spec:
+  clusterName: pilot-cluster
+  replicas: 1
+  selector:
+    matchLabels:
+      cluster.x-k8s.io/cluster-name: pilot-cluster
+  template:
+    spec:
+      clusterName: pilot-cluster
+      bootstrap:
+        dataSecretName: null  # virtual nodes do not need a bootstrap secret
+      infrastructureRef:
+        apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+        kind: InterlinkMachineTemplate
+        name: pilot-machine-template
+        namespace: default
+---
+# -- InterlinkMachineTemplate (pilot mode) ------------------------------------
+#
+# The PluginSpec instructs the controller to:
+#   1. Create a Pod named "<machine-name>-plugin" scheduled on the existing
+#      virtual node identified by the nodeSelector / tolerations.
+#   2. Create a ClusterIP Service named "<machine-name>-plugin" that exposes
+#      the Pod on the given port.
+#   3. Use "http://<svc>.<namespace>.svc.cluster.local:<port>" as the
+#      interLinkAddress for the VirtualNode.
+#
+# InterLinkAddress is intentionally omitted here; it is derived automatically.
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: InterlinkMachineTemplate
+metadata:
+  name: pilot-machine-template
+  namespace: default
+spec:
+  template:
+    spec:
+      # Virtual node capacity advertised to the Kubernetes scheduler.
+      resources:
+        cpu: "8"
+        memory: "32Gi"
+        pods: "110"
+      labels:
+        node.kubernetes.io/type: virtual
+        interlink.eu/provider: hpc-apptainer
+      taints:
+        - key: virtual-node.interlink.eu
+          effect: NoSchedule
+      # Pilot-mode configuration.
+      pluginSpec:
+        # Image that runs the interLink plugin binary (e.g. Apptainer plugin).
+        image: "ghcr.io/interlink-hq/interlink/plugin-apptainer:latest"
+        # TCP port the plugin listens on inside the container (default: 4000).
+        port: 4000
+        # Schedule the plugin Pod onto an existing virtual node backed by the
+        # HPC cluster.  Adjust the selector to match your virtual node labels.
+        nodeSelector:
+          interlink.eu/provider: hpc-cluster
+        # Tolerate the taint that is typically applied to interLink virtual nodes.
+        tolerations:
+          - key: virtual-node.interlink.eu
+            operator: Exists
+            effect: NoSchedule
+        # Plugin-specific configuration passed as environment variables.
+        env:
+          - name: INTERLINK_PORT
+            value: "4000"
+          - name: APPTAINER_TMPDIR
+            value: "/tmp/apptainer"
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "256Mi"
