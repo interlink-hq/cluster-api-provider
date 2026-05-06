@@ -1,8 +1,9 @@
 ---
-# Pilot-mode example: on-demand interLink plugin instantiation.
+# Pilot-mode example: on-demand interLink plugin instantiation using the
+# Apptainer plugin (https://github.com/interlink-hq/interlink-apptainer-plugin).
 #
 # In this mode the controller creates a Pod (and a ClusterIP Service) that runs
-# the interLink plugin binary on an *existing* virtual node that has access to
+# the interLink apptainer plugin on an *existing* virtual node that has access to
 # the remote resource provider (e.g. an HPC cluster running Apptainer).
 # The Service address is automatically used as the interLinkAddress for the
 # VirtualNode, so no external interLink deployment is required beforehand.
@@ -18,6 +19,30 @@
 # The same InterlinkMachineTemplate can be referenced by a MachineDeployment
 # and scaled by the Cluster Autoscaler.
 
+# -- Apptainer plugin configuration ------------------------------------------
+# The apptainer plugin reads its configuration from a YAML file.
+# Mount this ConfigMap into the plugin Pod as /etc/interlink/ApptainerConfig.yaml.
+# Adjust the values below to match your environment.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: apptainer-plugin-config
+  namespace: default
+data:
+  ApptainerConfig.yaml: |
+    SidecarPort: "4000"
+    DataRootFolder: "/tmp/.interlink/"
+    ApptainerPath: "/usr/bin/apptainer"
+    ApptainerDefaultOptions:
+      - "--no-eval"
+      - "--containall"
+    ImagePrefix: "docker://"
+    BashPath: /bin/bash
+    ExportPodData: true
+    VerboseLogging: false
+    ErrorsOnlyLogging: false
+    EnableProbes: false
+---
 # -- Cluster -----------------------------------------------------------------
 apiVersion: cluster.x-k8s.io/v1beta1
 kind: Cluster
@@ -105,8 +130,10 @@ spec:
           effect: NoSchedule
       # Pilot-mode configuration.
       pluginSpec:
-        # Image that runs the interLink plugin binary (e.g. Apptainer plugin).
-        image: "ghcr.io/interlink-hq/interlink/plugin-apptainer:latest"
+        # Apptainer plugin image from https://github.com/interlink-hq/interlink-apptainer-plugin.
+        # Build the image from source and push it to a registry accessible from the cluster,
+        # or use a pre-built image if one is available.
+        image: "ghcr.io/interlink-hq/interlink-apptainer-plugin:latest"
         # TCP port the plugin listens on inside the container (default: 4000).
         port: 4000
         # Schedule the plugin Pod onto an existing virtual node backed by the
@@ -118,12 +145,21 @@ spec:
           - key: virtual-node.interlink.eu
             operator: Exists
             effect: NoSchedule
-        # Plugin-specific configuration passed as environment variables.
+        # Environment variables for the apptainer plugin.
+        # APPTAINERCONFIGPATH tells the plugin where to find its config file.
+        # SHARED_FS=true enables shared-filesystem mode (set by the container entrypoint).
         env:
-          - name: INTERLINK_PORT
-            value: "4000"
-          - name: APPTAINER_TMPDIR
-            value: "/tmp/apptainer"
+          - name: APPTAINERCONFIGPATH
+            value: "/etc/interlink/ApptainerConfig.yaml"
+        # Mount the ConfigMap defined above so the plugin can read its configuration.
+        volumes:
+          - name: plugin-config
+            configMap:
+              name: apptainer-plugin-config
+        volumeMounts:
+          - name: plugin-config
+            mountPath: /etc/interlink
+            readOnly: true
         resources:
           requests:
             cpu: "500m"

@@ -60,15 +60,37 @@ InterlinkMachine
 The controller creates a Pod and ClusterIP Service named `<machine-name>-plugin`,
 then derives the address as `http://<machine>-plugin.<namespace>.svc.cluster.local:<port>`.
 
+The [interlink-apptainer-plugin](https://github.com/interlink-hq/interlink-apptainer-plugin)
+reads its configuration from a YAML file.  Create a ConfigMap with the file and
+mount it into the plugin container via `volumes` / `volumeMounts`:
+
 ```yaml
+# ConfigMap holding the Apptainer plugin configuration.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: apptainer-plugin-config
+  namespace: default
+data:
+  ApptainerConfig.yaml: |
+    SidecarPort: "4000"
+    DataRootFolder: "/tmp/.interlink/"
+    ApptainerPath: "/usr/bin/apptainer"
+    ApptainerDefaultOptions:
+      - "--no-eval"
+      - "--containall"
+    ImagePrefix: "docker://"
+    BashPath: /bin/bash
+    ExportPodData: true
+    VerboseLogging: false
+    ErrorsOnlyLogging: false
+    EnableProbes: false
+---
 apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
 kind: InterlinkMachine
 metadata:
   name: my-virtual-node
 spec:
-  # Optional: override the derived interLinkAddress
-  # interLinkAddress: "http://custom-endpoint:3000"
-
   nodeName: "my-virtual-node"
   resources:
     cpu: "8"
@@ -82,8 +104,8 @@ spec:
     effect: NoSchedule
 
   pluginSpec:
-    # Container image running the interLink plugin binary.
-    image: "ghcr.io/interlink-hq/interlink/plugin-apptainer:latest"
+    # Apptainer plugin image from https://github.com/interlink-hq/interlink-apptainer-plugin.
+    image: "ghcr.io/interlink-hq/interlink-apptainer-plugin:latest"
 
     # TCP port the plugin listens on (default: 4000).
     port: 4000
@@ -99,10 +121,20 @@ spec:
       operator: Exists
       effect: NoSchedule
 
-    # Plugin-specific environment variables.
+    # Point the plugin at the mounted configuration file.
     env:
-    - name: INTERLINK_PORT
-      value: "4000"
+    - name: APPTAINERCONFIGPATH
+      value: "/etc/interlink/ApptainerConfig.yaml"
+
+    # Mount the ConfigMap so the plugin can read its configuration.
+    volumes:
+    - name: plugin-config
+      configMap:
+        name: apptainer-plugin-config
+    volumeMounts:
+    - name: plugin-config
+      mountPath: /etc/interlink
+      readOnly: true
 
     # Compute resources for the plugin container.
     resources:
