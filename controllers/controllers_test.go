@@ -582,3 +582,87 @@ func TestInterlinkMachineReconciler_PluginPodMode_DefaultPort(t *testing.T) {
 }
 
 func boolPtr(b bool) *bool { return &b }
+
+func TestInterlinkMachineReconciler_PluginPodMode_VolumesAndMounts(t *testing.T) {
+	g := NewWithT(t)
+	scheme := buildScheme(t)
+
+	cluster := &clusterv1.Cluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-cluster", Namespace: "default"},
+	}
+	machine := &clusterv1.Machine{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "apptainer-machine",
+			Namespace: "default",
+			Labels:    map[string]string{clusterv1.ClusterNameLabel: "test-cluster"},
+		},
+		Spec: clusterv1.MachineSpec{ClusterName: "test-cluster"},
+	}
+	interlinkMachine := &infrav1.InterlinkMachine{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "apptainer-machine",
+			Namespace: "default",
+			OwnerReferences: []metav1.OwnerReference{
+				{APIVersion: clusterv1.GroupVersion.String(), Kind: "Machine", Name: machine.Name, UID: machine.UID, Controller: boolPtr(true)},
+			},
+		},
+		Spec: infrav1.InterlinkMachineSpec{
+			NodeName: "virtual-node-apptainer",
+			PluginSpec: &infrav1.PluginPodSpec{
+				Image: "ghcr.io/interlink-hq/interlink-apptainer-plugin:latest",
+				Port:  4000,
+				Env: []corev1.EnvVar{
+					{Name: "APPTAINERCONFIGPATH", Value: "/etc/interlink/ApptainerConfig.yaml"},
+				},
+				Volumes: []corev1.Volume{
+					{
+						Name: "plugin-config",
+						VolumeSource: corev1.VolumeSource{
+							ConfigMap: &corev1.ConfigMapVolumeSource{
+								LocalObjectReference: corev1.LocalObjectReference{Name: "apptainer-plugin-config"},
+							},
+						},
+					},
+				},
+				VolumeMounts: []corev1.VolumeMount{
+					{Name: "plugin-config", MountPath: "/etc/interlink", ReadOnly: true},
+				},
+			},
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(cluster, machine, interlinkMachine).
+		WithStatusSubresource(interlinkMachine).
+		Build()
+
+	reconciler := &controllers.InterlinkMachineReconciler{
+		Client: fakeClient,
+		Scheme: scheme,
+		Log:    ctrl.Log.WithName("test"),
+	}
+
+	result, err := reconciler.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Namespace: "default", Name: "apptainer-machine"},
+	})
+	g.Expect(err).ToNot(HaveOccurred())
+	// Plugin pod is not Running yet; should requeue.
+	g.Expect(result.RequeueAfter).ToNot(BeZero())
+
+	// Verify the plugin Pod has the expected volumes and volumeMounts.
+	pod := &corev1.Pod{}
+	g.Expect(fakeClient.Get(context.Background(), types.NamespacedName{Namespace: "default", Name: "apptainer-machine-plugin"}, pod)).To(Succeed())
+	g.Expect(pod.Spec.Containers[0].Image).To(Equal("ghcr.io/interlink-hq/interlink-apptainer-plugin:latest"))
+	g.Expect(pod.Spec.Volumes).To(HaveLen(1))
+	g.Expect(pod.Spec.Volumes[0].Name).To(Equal("plugin-config"))
+	g.Expect(pod.Spec.Volumes[0].ConfigMap).ToNot(BeNil())
+	g.Expect(pod.Spec.Volumes[0].ConfigMap.Name).To(Equal("apptainer-plugin-config"))
+	g.Expect(pod.Spec.Containers[0].VolumeMounts).To(HaveLen(1))
+	g.Expect(pod.Spec.Containers[0].VolumeMounts[0].Name).To(Equal("plugin-config"))
+	g.Expect(pod.Spec.Containers[0].VolumeMounts[0].MountPath).To(Equal("/etc/interlink"))
+	g.Expect(pod.Spec.Containers[0].VolumeMounts[0].ReadOnly).To(BeTrue())
+	g.Expect(pod.Spec.Containers[0].Env).To(ContainElement(
+		corev1.EnvVar{Name: "APPTAINERCONFIGPATH", Value: "/etc/interlink/ApptainerConfig.yaml"},
+	))
+}

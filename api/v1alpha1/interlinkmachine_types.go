@@ -85,6 +85,18 @@ type PluginPodSpec struct {
 	// Resources specifies the compute resources required by the plugin container.
 	// +optional
 	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
+
+	// VolumeMounts describe volume mounts for the plugin container.
+	// Use this together with Volumes to inject files (e.g. a ConfigMap containing
+	// ApptainerConfig.yaml) into the container at a specific path.
+	// +optional
+	VolumeMounts []corev1.VolumeMount `json:"volumeMounts,omitempty"`
+
+	// Volumes is a list of volumes that can be mounted by the plugin container.
+	// Use this to make ConfigMaps, Secrets, or host paths available inside
+	// the container (e.g. mounting an apptainer configuration file).
+	// +optional
+	Volumes []corev1.Volume `json:"volumes,omitempty"`
 }
 
 // VirtualNodeResources describes the capacity of a virtual node.

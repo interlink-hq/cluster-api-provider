@@ -451,6 +451,7 @@ func buildPluginPodSpec(spec *infrav1.PluginPodSpec, port int32) corev1.PodSpec 
 		NodeSelector:  spec.NodeSelector,
 		Tolerations:   spec.Tolerations,
 		RestartPolicy: corev1.RestartPolicyAlways,
+		Volumes:       spec.Volumes,
 		Containers: []corev1.Container{
 			{
 				Name:  "plugin",
@@ -462,8 +463,9 @@ func buildPluginPodSpec(spec *infrav1.PluginPodSpec, port int32) corev1.PodSpec 
 						Protocol:      corev1.ProtocolTCP,
 					},
 				},
-				Env:       spec.Env,
-				Resources: spec.Resources,
+				Env:          spec.Env,
+				Resources:    spec.Resources,
+				VolumeMounts: spec.VolumeMounts,
 			},
 		},
 	}
